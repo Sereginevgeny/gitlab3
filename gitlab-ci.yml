@@ -1,0 +1,46 @@
+# укажем специальные переменные variables для корректной работы докера в докере
+# (этот режим потребуется для сборки образа)
+variables:
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_TLS_CERTDIR: ""
+  
+include:
+  - project: 'devops_users_repos/6719/gitlab_lib'
+    ref: main
+    file: 'docker-build.yml'
+
+stages:  
+  - linter # отвечает за проверку Dockerfile на ошибки
+  - audit  # проводит аудит кода проекта на уязвимости      
+  - build  
+
+docker-lint-job:   
+  stage: linter           # стадия (из определённых выше)
+  image: docker:24.0.5    # используемый образ
+  services:               # позволяет запустить другой контейнер
+    - docker:24.0.5-dind 
+  script:                 # код команды для выполнения
+    - docker run --rm -i ghcr.io/hadolint/hadolint < Dockerfile
+  rules:
+    - if: $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"
+    - if: $CI_COMMIT_BRANCH == "master"
+
+yarn-audit-job:
+  stage: audit
+  image: node:16-alpine 
+  script:
+    - yarn install && yarn audit --level high
+  allow_failure: true     # идём дальше, даже если есть ошибки
+  rules:
+    - if: $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"
+    - if: $CI_COMMIT_BRANCH == "master"
+
+build-job:       
+  stage: build
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
+  extends: .build-job-script
+  rules:
+    - if: $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"
+    - if: $CI_COMMIT_BRANCH == "master"
